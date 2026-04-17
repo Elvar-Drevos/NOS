@@ -404,15 +404,22 @@
 (function() {
   // Rijkswaterstaat officiële verkeersinformatie API.
   // CORS staat alleen rwsverkeersinfo.nl toe, dus via CORS-proxy met fallback.
-  const TARGET = 'https://api.rwsverkeersinfo.nl/api/traffic/';
+  const TARGET_BASE = 'https://api.rwsverkeersinfo.nl/api/traffic/';
+  // Cache-busting: unieke URL per ophaal-cyclus voorkomt dat proxies stale data teruggeven.
+  function freshTarget() {
+    // Rond af op 30s zodat we niet onnodig vaak raken, maar wel altijd binnen refresh-cyclus verversen.
+    const bucket = Math.floor(Date.now() / 30000);
+    return TARGET_BASE + '?_=' + bucket;
+  }
+  // Codetabs/corsproxy cachen niet of licht; allorigins cachet zwaar (stale-while-revalidate 24u) dus als laatste.
   const PROXIES = [
     u => 'https://api.codetabs.com/v1/proxy/?quest=' + u,
-    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-    u => 'https://corsproxy.io/?url=' + encodeURIComponent(u)
+    u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)
   ];
   const FETCH_TIMEOUT_MS = 8000;
   const MAX_ITEMS = 10;
-  const REFRESH_MS = 5 * 60 * 1000;
+  const REFRESH_MS = 2 * 60 * 1000;
 
   // obstructionType codes uit RWS API: 1 = wegwerkzaamheden, 4 = file, 7 = rijbaan/afrit afgesloten
   const TYPE_ROADWORK = 1;
@@ -564,7 +571,11 @@
   }
 
   async function fetchOne(url, signal) {
-    const res = await fetch(url, { cache: 'no-store', signal });
+    const res = await fetch(url, {
+      cache: 'no-store',
+      signal,
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
   }
@@ -573,8 +584,9 @@
     // Race alle proxies parallel: de snelste response wint, rest wordt afgebroken.
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const target = freshTarget();
     try {
-      const attempts = PROXIES.map(makeUrl => fetchOne(makeUrl(TARGET), controller.signal));
+      const attempts = PROXIES.map(makeUrl => fetchOne(makeUrl(target), controller.signal));
       const data = await Promise.any(attempts);
       controller.abort();  // cancel losers
       return data;
