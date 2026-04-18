@@ -8,14 +8,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body {
+  html {
+    width: 100vw;
+    height: 100vh;
+    background:
+      linear-gradient(180deg, rgba(10,14,23,0.82) 0%, rgba(10,14,23,0.92) 60%, rgba(10,14,23,0.97) 100%),
+      radial-gradient(ellipse at 70% 30%, rgba(231,76,60,0.15), transparent 55%),
+      url('https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1920&q=80')
+        center / cover no-repeat,
+      #0a0e17;
+  }
+  body {
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    background: #0a0e17;
+    background: transparent;
     color: #ffffff;
     font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
     font-weight: 400;
+  }
+  .card {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
 
   .app {
