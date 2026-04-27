@@ -493,34 +493,11 @@
   const elTimer = document.getElementById('statusTimer');
   const elTimerText = document.getElementById('statusTimerText');
 
-  // Bijhouden hoe lang de huidige toestand (wel/geen files) al duurt.
-  // Reset alleen bij echte transitie. Persistent opgeslagen in localStorage zodat
-  // page-reloads (signage-shell die slides rouleert) de teller niet steeds resetten.
-  let stateStart = null;       // ms-tijdstip waarop de huidige toestand begon
+  // Hoe lang de huidige toestand al duurt. Voor "wel files" leiden we dit af uit
+  // de API zelf (oudste actieve file timeStart) — geen opslag nodig, werkt op
+  // signage-platformen die localStorage clearen (zoals Yodeck).
+  let stateStart = null;       // ms-tijdstip waarop de huidige file-toestand begon
   let stateHasFiles = null;    // null = nog onbekend, true/false = huidige status
-  const STATE_KEY = 'verkeer.statusTimer.v1';
-
-  function loadState() {
-    try {
-      const raw = localStorage.getItem(STATE_KEY);
-      if (!raw) return;
-      const obj = JSON.parse(raw);
-      if (typeof obj.stateStart === 'number'
-          && (obj.stateHasFiles === true || obj.stateHasFiles === false)) {
-        stateStart = obj.stateStart;
-        stateHasFiles = obj.stateHasFiles;
-      }
-    } catch (e) { /* corrupt of geen storage: gewoon negeren */ }
-  }
-
-  function saveState() {
-    try {
-      localStorage.setItem(STATE_KEY, JSON.stringify({
-        stateStart: stateStart,
-        stateHasFiles: stateHasFiles
-      }));
-    } catch (e) { /* storage vol of geblokkeerd: negeren */ }
-  }
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -580,27 +557,35 @@
   }
 
   function renderTimer() {
-    if (stateHasFiles === null || stateStart === null) {
+    if (stateHasFiles === null) {
       elTimer.style.visibility = 'hidden';
       return;
     }
     elTimer.style.visibility = 'visible';
-    const dur = formatDuration(Date.now() - stateStart);
-    if (stateHasFiles) {
+    if (stateHasFiles && stateStart !== null) {
       elTimer.classList.add('has-files');
+      const dur = formatDuration(Date.now() - stateStart);
       elTimerText.textContent = 'Al ' + dur + ' files';
     } else {
       elTimer.classList.remove('has-files');
-      elTimerText.textContent = 'Al ' + dur + ' geen files';
+      elTimerText.textContent = 'Momenteel geen files';
     }
   }
 
-  function updateStateTimer(fileCount) {
-    const hasFiles = fileCount > 0;
-    if (stateHasFiles !== hasFiles) {
-      stateHasFiles = hasFiles;
-      stateStart = Date.now();
-      saveState();
+  // files = array met objecten die o.a. een rwsTimeStart bevatten (ISO of ms)
+  function updateStateTimer(files) {
+    if (files.length > 0) {
+      // Pak de oudste actieve file: dat is de file die het langst loopt → "files al sinds X"
+      let earliest = Infinity;
+      for (const f of files) {
+        const t = f.startMs;
+        if (typeof t === 'number' && !isNaN(t) && t < earliest) earliest = t;
+      }
+      stateHasFiles = true;
+      stateStart = (earliest === Infinity) ? Date.now() : earliest;
+    } else {
+      stateHasFiles = false;
+      stateStart = null;
     }
     renderTimer();
   }
@@ -730,12 +715,14 @@
       obstructions.forEach(o => {
         const { from, to } = splitDirection(o.directionText);
         if (o.obstructionType === TYPE_JAM) {
+          const startMs = o.timeStart ? Date.parse(o.timeStart) : NaN;
           allFiles.push({
             road: o.roadNumber || '',
             from, to,
             reason: o.cause || o.title || '',
             delay: o.delay || 0,      // minuten (float)
-            length: o.length || 0     // meters
+            length: o.length || 0,    // meters
+            startMs: isNaN(startMs) ? null : startMs
           });
         } else if (o.obstructionType === TYPE_ROADWORK) {
           allWorks.push({
@@ -758,7 +745,7 @@
       elStatKm.textContent = totalKm.toFixed(0);
       elStatWorks.textContent = allWorks.length;
       updateGauge(allFiles.length, totalKm);
-      updateStateTimer(allFiles.length);
+      updateStateTimer(allFiles);
       elFilesCount.textContent = allFiles.length > MAX_ITEMS ? `Top ${MAX_ITEMS} van ${allFiles.length}` : `${allFiles.length}`;
       elWorksCount.textContent = allWorks.length > MAX_ITEMS ? `Top ${MAX_ITEMS} van ${allWorks.length}` : `${allWorks.length}`;
       elUpdate.textContent = fmtTime(new Date().toISOString());
@@ -771,8 +758,6 @@
     }
   }
 
-  loadState();   // herstel timer-toestand uit vorige sessie indien aanwezig
-  renderTimer(); // toon meteen iets als er opgeslagen toestand was
   fetchData();
   setInterval(fetchData, REFRESH_MS);
   // Timer-tekst elke 20s verversen zodat de "X minuten" ook tussen API-calls door bijwerkt
