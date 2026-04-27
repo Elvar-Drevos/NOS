@@ -60,12 +60,15 @@
     font-size: 16px;
     color: rgba(255,255,255,0.55);
     font-weight: 400;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
   }
   .header-left .status-timer {
-    margin-top: 6px;
     font-size: 14px;
     font-weight: 500;
-    color: rgba(255,255,255,0.75);
+    color: rgba(255,255,255,0.85);
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -365,9 +368,11 @@
   <div class="header">
     <div class="header-left">
       <h1>Verkeersinformatie Nederland</h1>
-      <div class="subtitle">Laatst bijgewerkt: <span class="update-time" id="updateTime">—</span></div>
-      <div class="status-timer" id="statusTimer" style="visibility:hidden">
-        <span class="pulse"></span><span id="statusTimerText">—</span>
+      <div class="subtitle">
+        <span>Laatst bijgewerkt: <span class="update-time" id="updateTime">—</span></span>
+        <span class="status-timer" id="statusTimer" style="visibility:hidden">
+          <span class="pulse"></span><span id="statusTimerText">—</span>
+        </span>
       </div>
     </div>
     <div class="header-right">
@@ -489,9 +494,33 @@
   const elTimerText = document.getElementById('statusTimerText');
 
   // Bijhouden hoe lang de huidige toestand (wel/geen files) al duurt.
-  // Reset bij elke transitie. Begint te tellen vanaf paginalading.
+  // Reset alleen bij echte transitie. Persistent opgeslagen in localStorage zodat
+  // page-reloads (signage-shell die slides rouleert) de teller niet steeds resetten.
   let stateStart = null;       // ms-tijdstip waarop de huidige toestand begon
   let stateHasFiles = null;    // null = nog onbekend, true/false = huidige status
+  const STATE_KEY = 'verkeer.statusTimer.v1';
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STATE_KEY);
+      if (!raw) return;
+      const obj = JSON.parse(raw);
+      if (typeof obj.stateStart === 'number'
+          && (obj.stateHasFiles === true || obj.stateHasFiles === false)) {
+        stateStart = obj.stateStart;
+        stateHasFiles = obj.stateHasFiles;
+      }
+    } catch (e) { /* corrupt of geen storage: gewoon negeren */ }
+  }
+
+  function saveState() {
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify({
+        stateStart: stateStart,
+        stateHasFiles: stateHasFiles
+      }));
+    } catch (e) { /* storage vol of geblokkeerd: negeren */ }
+  }
 
   function escapeHtml(s) {
     if (s == null) return '';
@@ -571,6 +600,7 @@
     if (stateHasFiles !== hasFiles) {
       stateHasFiles = hasFiles;
       stateStart = Date.now();
+      saveState();
     }
     renderTimer();
   }
@@ -741,10 +771,12 @@
     }
   }
 
+  loadState();   // herstel timer-toestand uit vorige sessie indien aanwezig
+  renderTimer(); // toon meteen iets als er opgeslagen toestand was
   fetchData();
   setInterval(fetchData, REFRESH_MS);
-  // Timer-tekst elke 30s verversen zodat de "X minuten" ook tussen API-calls door bijwerkt
-  setInterval(renderTimer, 30 * 1000);
+  // Timer-tekst elke 20s verversen zodat de "X minuten" ook tussen API-calls door bijwerkt
+  setInterval(renderTimer, 20 * 1000);
 })();
 </script>
 </body>
